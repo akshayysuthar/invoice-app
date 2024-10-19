@@ -180,7 +180,8 @@ export default function Dashboard() {
 
   const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042"];
 
-  console.log(dashboardData);
+  // console.log(dashboardData);
+
   
 
   return (
