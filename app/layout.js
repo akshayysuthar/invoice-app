@@ -4,7 +4,7 @@ import SessionWrapper from "./providers/SessionWrapper";
 import { Toaster } from "@/components/ui/toaster";
 
 import { ThemeProvider } from "./providers/theme-provider";
-import Navbar from "@/components/Navabr";
+import Navbar from "@/components/Navbar";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",

@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { LogIn, LogOut, Menu } from "lucide-react";
+import React, { useState } from "react";
+import { LogIn, LogOut, Menu, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,13 +25,36 @@ import {
 const Navbar = () => {
   const { data: session, status } = useSession();
   const user = session?.user;
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
+
+  const navLinks = [
+    { href: "/", label: "Dashboard" },
+    { href: "/invoices", label: "Invoices" },
+    { href: "/clients", label: "Clients" },
+    { href: "/reports", label: "Reports" },
+  ];
 
   return (
-    <nav className="text-primary p-4 shadow-lg bg-transparent backdrop-blur">
+    <nav className="text-primary p-4 shadow-lg bg-transparent backdrop-blur px-10">
       <div className="container mx-auto flex justify-between items-center">
         <Link href="/" className="text-2xl font-bold">
-          LiveChat
+          InvoiceApp
         </Link>
+
+        {/* Desktop Navigation */}
+        <div className="hidden md:flex items-center space-x-4">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="hover:text-primary-focus"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
 
         <div className="flex items-center space-x-2 md:space-x-4">
           <ModeToggle />
@@ -99,27 +122,38 @@ const Navbar = () => {
             </TooltipProvider>
           )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden">
-                <Menu className="h-5 w-5" />
-                <span className="sr-only">Menu</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link href="/">Home</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/about">About</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/contact">Contact</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Mobile Menu Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            onClick={toggleMenu}
+          >
+            {isMenuOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
+            <span className="sr-only">Toggle menu</span>
+          </Button>
         </div>
       </div>
+
+      {/* Mobile Navigation */}
+      {isMenuOpen && (
+        <div className="md:hidden mt-4 space-y-2">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="block py-2 hover:text-primary-focus"
+              onClick={toggleMenu}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      )}
     </nav>
   );
 };

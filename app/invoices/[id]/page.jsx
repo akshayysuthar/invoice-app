@@ -9,14 +9,15 @@ import { DownloadIcon, PrinterIcon } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useSession } from "next-auth/react";
 import { supabase } from "@/utils/supabaseClient";
+import logo from "@/public/logo.svg";
+import Image from "next/image";
 
 const companyName = "TechInvoice Solutions";
 const companyAddress = "123 Tech Street, Silicon Valley, CA 94000";
 const companyPhone = "+1 (555) 123-4567";
 const companyEmail = "contact@techinvoice.com";
 const companyWebsite = "www.techinvoice.com";
-const companyLogo =
-  "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logo-placeholder-Wd7kZjjmXZZjqZXXPZZXZZZZZZZZZZZZ.png";
+
 
 export default function InvoicePage() {
   const { id } = useParams();
@@ -49,7 +50,8 @@ export default function InvoicePage() {
             description,
             quantity,
             unit_price,
-            total
+            total,
+            is_free
           )
         `
         )
@@ -71,45 +73,112 @@ export default function InvoicePage() {
     }
   };
 
-  console.log(invoiceData);
-
   const handleDownload = () => {
     if (!invoiceData) return;
 
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet([
-      { "Company Name": companyName },
-      { "Company Address": companyAddress },
-      { "Company Phone": companyPhone },
-      { "Company Email": companyEmail },
-      { "Company Website": companyWebsite },
-      {},
-      { "Invoice ID": invoiceData.id },
-      { Date: new Date(invoiceData.created_at).toLocaleDateString() },
-      { "Due Date": new Date(invoiceData.due_date).toLocaleDateString() },
-      { Status: invoiceData.status },
-      {},
-      { "Client Name": invoiceData.client.name },
-      { "Client Company": invoiceData.client.company },
-      { "Client Address": invoiceData.client.address },
-      { "Client Email": invoiceData.client.email },
-      { "Client Phone": invoiceData.client.phone },
-      {},
-      { Description: "Quantity", "": "Unit Price", "  ": "Total" },
-      ...invoiceData.items.map((item) => ({
-        Description: item.description,
-        "": item.quantity,
-        " ": `$${item.unit_price.toFixed(2)}`,
-        "  ": `$${item.total.toFixed(2)}`,
-      })),
-      {},
-      { "": "", " ": "Subtotal:", "  ": `$${invoiceData.subtotal.toFixed(2)}` },
-      { "": "", " ": "Tax:", "  ": `$${invoiceData.tax.toFixed(2)}` },
-      { "": "", " ": "Total:", "  ": `$${invoiceData.total.toFixed(2)}` },
-      {},
-      { Notes: invoiceData.notes },
-    ]);
+    const worksheet = XLSX.utils.json_to_sheet([]);
 
+    // Company Information (Header)
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      [
+        ["Company Name:", companyName],
+        ["Company Address:", companyAddress],
+        ["Company Phone:", companyPhone],
+        ["Company Email:", companyEmail],
+        ["Company Website:", companyWebsite],
+      ],
+      { origin: "A1" }
+    );
+
+    // Add a blank row
+    XLSX.utils.sheet_add_aoa(worksheet, [[]], { origin: -1 });
+
+    // Invoice Information
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      [
+        ["Invoice ID:", invoiceData.id],
+        ["Date:", new Date(invoiceData.created_at).toLocaleDateString()],
+        ["Due Date:", new Date(invoiceData.due_date).toLocaleDateString()],
+        ["Status:", invoiceData.status],
+      ],
+      { origin: -1 }
+    );
+
+    // Add a blank row
+    XLSX.utils.sheet_add_aoa(worksheet, [[]], { origin: -1 });
+
+    // Client Information
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      [
+        ["Client Name:", invoiceData.clients.name],
+        ["Client Company:", invoiceData.clients.company],
+        ["Client Address:", invoiceData.clients.address],
+        ["Client Email:", invoiceData.clients.email],
+        ["Client Phone:", invoiceData.clients.phone],
+      ],
+      { origin: -1 }
+    );
+
+    // Add a blank row
+    XLSX.utils.sheet_add_aoa(worksheet, [[]], { origin: -1 });
+
+    // Invoice Items (Headers)
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      [["Description", "Quantity", "Unit Price", "Free", "Total"]],
+      { origin: -1 }
+    );
+
+    // Invoice Items (Data)
+    invoiceData.invoice_items.forEach((item) => {
+      XLSX.utils.sheet_add_aoa(
+        worksheet,
+        [
+          [
+            item.description,
+            item.quantity,
+            item.unit_price.toFixed(2),
+            item.is_free ? "Free" : "",
+            `$${item.total.toFixed(2)}`,
+          ],
+        ],
+        { origin: -1 }
+      );
+    });
+
+    // Add a blank row
+    XLSX.utils.sheet_add_aoa(worksheet, [[]], { origin: -1 });
+
+    // Subtotal, Discount, Tax, Total
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      [
+        ["", "", "Subtotal:", `$${invoiceData.subtotal.toFixed(2)}`],
+        ["", "", "Discount:", `$${invoiceData.discount.toFixed(2)}`],
+        [
+          "",
+          "",
+          `Tax (${invoiceData.tax_rate}%):`,
+          `$${invoiceData.tax.toFixed(2)}`,
+        ],
+        ["", "", "Total:", `$${invoiceData.total.toFixed(2)}`],
+      ],
+      { origin: -1 }
+    );
+
+    // Add a blank row
+    XLSX.utils.sheet_add_aoa(worksheet, [[]], { origin: -1 });
+
+    // Notes
+    XLSX.utils.sheet_add_aoa(worksheet, [["Notes:"], [invoiceData.notes]], {
+      origin: -1,
+    });
+
+    // Append the worksheet to the workbook and save the file
     XLSX.utils.book_append_sheet(workbook, worksheet, "Invoice");
     XLSX.writeFile(workbook, `Invoice_${invoiceData.id}.xlsx`);
 
@@ -161,11 +230,7 @@ export default function InvoicePage() {
           <div className="space-y-6">
             <div className="flex justify-between">
               <div>
-                <img
-                  src={companyLogo}
-                  alt="Company Logo"
-                  className="h-12 mb-2"
-                />
+                <Image src={logo} alt="Company Logo" className="h-12 mb-2" />
                 <h2 className="text-2xl font-bold">{companyName}</h2>
                 <p>{companyAddress}</p>
                 <p>{companyPhone}</p>
@@ -215,7 +280,9 @@ export default function InvoicePage() {
                     <td className="text-right p-2">
                       ${item.unit_price.toFixed(2)}
                     </td>
-                    <td className="text-right p-2">${item.total}</td>
+                    <td className="text-right p-2">
+                      {item.is_free ? "Free" : `$${item.total.toFixed(2)}`}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -224,25 +291,33 @@ export default function InvoicePage() {
                   <td colSpan={3} className="text-right p-2">
                     <strong>Subtotal:</strong>
                   </td>
-                  <td className="text-right p-2">${invoiceData.subtotal}</td>
+                  <td className="text-right p-2">
+                    ${invoiceData.subtotal.toFixed(2)}
+                  </td>
                 </tr>
                 <tr>
                   <td colSpan={3} className="text-right p-2">
-                    <strong>Discount:</strong> 
+                    <strong>Discount:</strong>
                   </td>
-                  <td className="text-right p-2">- ${invoiceData.discount}</td>
+                  <td className="text-right p-2">
+                    - ${invoiceData.discount.toFixed(2)}
+                  </td>
                 </tr>
                 <tr>
                   <td colSpan={3} className="text-right p-2">
-                    <strong>Tax:</strong>
+                    <strong>Tax ({invoiceData.tax_rate}%):</strong>
                   </td>
-                  <td className="text-right p-2">${invoiceData.tax}</td>
+                  <td className="text-right p-2">
+                    ${invoiceData.tax.toFixed(2)}
+                  </td>
                 </tr>
                 <tr className="font-bold">
                   <td colSpan={3} className="text-right p-2">
                     <strong>Total:</strong>
                   </td>
-                  <td className="text-right p-2">${invoiceData.total}</td>
+                  <td className="text-right p-2">
+                    ${invoiceData.total.toFixed(2)}
+                  </td>
                 </tr>
               </tfoot>
             </table>

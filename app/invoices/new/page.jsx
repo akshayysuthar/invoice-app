@@ -20,20 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { PlusCircle, Trash2 } from "lucide-react";
 import { supabase } from "@/utils/supabaseClient";
+import { useSession } from "next-auth/react";
 
-
-const TAX_RATE = 0.1;
 const PREDEFINED_PLANS = [
   { name: "Basic Web Design", price: 299 },
   { name: "Standard Web Design", price: 459 },
@@ -47,24 +39,18 @@ const PREDEFINED_PLANS = [
   { name: "Premium Maintenance", price: 200 },
 ];
 
-// interface Client {
-//   id: string
-//   name: string
-//   company: string
-//   address: string
-//   email: string
-//   phone: string
-// }
-
-// interface InvoiceItem {
-//   description: string
-//   quantity: number
-//   unit_price: number
-// }
+const DISCOUNT_OPTIONS = [
+  { label: "No Discount", value: "none" },
+  { label: "10% Off", value: "percentage_10" },
+  { label: "5% Off", value: "percentage_5" },
+  { label: "First Order 25% Off", value: "percentage_25_first" },
+  { label: "Custom", value: "custom" },
+];
 
 export default function NewInvoicePage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { data: session } = useSession();
   const [clients, setClients] = useState([]);
   const [isNewClient, setIsNewClient] = useState(false);
   const [newClient, setNewClient] = useState({
@@ -74,16 +60,27 @@ export default function NewInvoicePage() {
     email: "",
     phone: "",
   });
+  const [clientSearch, setClientSearch] = useState("");
+  const [selectedClient, setSelectedClient] = useState(null);
   const [invoiceData, setInvoiceData] = useState({
     client_id: "",
     created_at: new Date().toISOString().split("T")[0],
     due_date: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0],
-    items: [{ description: "", quantity: 1, unit_price: 0 }],
+    items: [
+      {
+        description: "",
+        quantity: 1,
+        unit_price: 0,
+        is_free: false,
+        total: 0,
+      },
+    ],
     notes: "",
     discount_type: "none",
     discount_value: 0,
+    tax_rate: 10,
   });
 
   useEffect(() => {
@@ -104,13 +101,29 @@ export default function NewInvoicePage() {
     setInvoiceData({ ...invoiceData, [name]: value });
   };
 
-  const handleClientChange = (value) => {
-    setInvoiceData({ ...invoiceData, client_id: value });
+  const handleClientSearch = (e) => {
+    setClientSearch(e.target.value);
+    const foundClient = clients.find(
+      (client) =>
+        client.name.toLowerCase().includes(e.target.value.toLowerCase()) ||
+        client.email.toLowerCase().includes(e.target.value.toLowerCase())
+    );
+    if (foundClient) {
+      setSelectedClient(foundClient);
+      setInvoiceData({ ...invoiceData, client_id: foundClient.id });
+    } else {
+      setSelectedClient(null);
+      setInvoiceData({ ...invoiceData, client_id: "" });
+    }
   };
 
   const handleItemChange = (index, field, value) => {
     const updatedItems = [...invoiceData.items];
     updatedItems[index][field] = value;
+
+    // Recalculate the total for the item
+    updatedItems[index].total = calculateItemTotal(updatedItems[index]);
+
     setInvoiceData({ ...invoiceData, items: updatedItems });
   };
 
@@ -119,7 +132,13 @@ export default function NewInvoicePage() {
       ...invoiceData,
       items: [
         ...invoiceData.items,
-        { description: "", quantity: 1, unit_price: 0 },
+        {
+          description: "",
+          quantity: 1,
+          unit_price: 0,
+          is_free: false,
+          total: 0,
+        },
       ],
     });
   };
@@ -130,39 +149,57 @@ export default function NewInvoicePage() {
   };
 
   const calculateSubtotal = () => {
-    return invoiceData.items.reduce(
-      (total, item) => total + item.quantity * item.unit_price,
-      0
-    );
+    return invoiceData.items.reduce((total, item) => total + item.total, 0);
+  };
+
+  const calculateItemTotal = (item) => {
+    return item.is_free ? 0 : item.quantity * item.unit_price;
   };
 
   const calculateDiscount = (subtotal) => {
-    if (invoiceData.discount_type === "percentage") {
-      return subtotal * (invoiceData.discount_value / 100);
-    } else if (invoiceData.discount_type === "fixed") {
-      return invoiceData.discount_value;
+    switch (invoiceData.discount_type) {
+      case "percentage_10":
+        return subtotal * 0.1;
+      case "percentage_5":
+        return subtotal * 0.05;
+      case "percentage_25_first":
+        return subtotal * 0.25;
+      case "custom":
+        return invoiceData.discount_value;
+      default:
+        return 0;
     }
-    return 0;
   };
 
   const calculateTax = (subtotal) => {
-    return subtotal * TAX_RATE;
+    return (
+      (subtotal - calculateDiscount(subtotal)) * (invoiceData.tax_rate / 100)
+    );
   };
 
   const calculateTotal = () => {
     const subtotal = calculateSubtotal();
     const discount = calculateDiscount(subtotal);
-    const tax = calculateTax(subtotal - discount);
+    const tax = calculateTax(subtotal);
     return subtotal - discount + tax;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!session) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to create an invoice.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const subtotal = calculateSubtotal();
       const discount = calculateDiscount(subtotal);
-      const tax = calculateTax(subtotal - discount);
-      const total = subtotal - discount + tax;
+      const tax = calculateTax(subtotal);
+      const total = calculateTotal();
 
       let client_id = invoiceData.client_id;
 
@@ -174,6 +211,11 @@ export default function NewInvoicePage() {
 
         if (error) throw error;
         client_id = data[0].id;
+        setSelectedClient(data[0]);
+        toast({
+          title: "New Client Created",
+          description: "The new client has been successfully added.",
+        });
       }
 
       const { data, error } = await supabase
@@ -191,6 +233,7 @@ export default function NewInvoicePage() {
             notes: invoiceData.notes,
             discount_type: invoiceData.discount_type,
             discount_value: invoiceData.discount_value,
+            tax_rate: invoiceData.tax_rate,
           },
         ])
         .select();
@@ -205,6 +248,8 @@ export default function NewInvoicePage() {
           description: item.description,
           quantity: item.quantity,
           unit_price: item.unit_price,
+          is_free: item.is_free,
+          total: item.total,
         }))
       );
 
@@ -237,6 +282,7 @@ export default function NewInvoicePage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-6">
+            {/* Client selection and new client form */}
             <div className="space-y-4">
               <div className="flex items-center space-x-2">
                 <Checkbox
@@ -288,47 +334,33 @@ export default function NewInvoicePage() {
                   />
                 </div>
               ) : (
-                <Select
-                  onValueChange={handleClientChange}
-                  value={invoiceData.client_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        {client.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="space-y-2">
+                  <Label htmlFor="clientSearch">Search Client</Label>
+                  <Input
+                    id="clientSearch"
+                    placeholder="Search by name or email"
+                    value={clientSearch}
+                    onChange={handleClientSearch}
+                  />
+                  {selectedClient && (
+                    <div className="mt-2 p-2 bg-secondary rounded">
+                      <p>
+                        <strong>Selected Client</strong>
+                      </p>
+                      <p>{selectedClient.name}</p>
+                      <p>{selectedClient.email}</p>
+                    </div>
+                  )}
+                  {!selectedClient && clientSearch && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      No client found. Consider adding a new client.
+                    </p>
+                  )}
+                </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="createdAt">Invoice Date</Label>
-                  <Input
-                    id="createdAt"
-                    name="created_at"
-                    type="date"
-                    value={invoiceData.created_at}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dueDate">Due Date</Label>
-                  <Input
-                    id="dueDate"
-                    name="due_date"
-                    type="date"
-                    value={invoiceData.due_date}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-              </div>
             </div>
+
+            {/* Invoice items */}
             <div className="space-y-4">
               <Label>Invoice Items</Label>
               {invoiceData.items.map((item, index) => (
@@ -404,6 +436,27 @@ export default function NewInvoicePage() {
                       required
                     />
                   </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`free-${index}`}
+                      checked={item.is_free}
+                      onCheckedChange={(checked) =>
+                        handleItemChange(index, "is_free", checked)
+                      }
+                    />
+                    <Label htmlFor={`free-${index}`}>Free Service</Label>
+                  </div>
+                  <div className="w-32  space-y-2">
+                    <Label>Item Total</Label>
+                    <Input
+                      type="text"
+                      value={
+                        item.is_free ? "Free" : `$${item.total.toFixed(2)}`
+                      }
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
@@ -424,6 +477,8 @@ export default function NewInvoicePage() {
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Item
               </Button>
             </div>
+
+            {/* Discount */}
             <div className="space-y-4">
               <Label>Discount</Label>
               <Select
@@ -436,18 +491,18 @@ export default function NewInvoicePage() {
                   <SelectValue placeholder="Select discount type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No Discount</SelectItem>
-                  <SelectItem value="percentage">Percentage</SelectItem>
-                  <SelectItem value="fixed">Fixed Amount</SelectItem>
+                  {DISCOUNT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {invoiceData.discount_type !== "none" && (
+              {invoiceData.discount_type === "custom" && (
                 <Input
                   type="number"
                   min="0"
-                  step={
-                    invoiceData.discount_type === "percentage" ? "1" : "0.01"
-                  }
+                  step="0.01"
                   value={invoiceData.discount_value}
                   onChange={(e) =>
                     setInvoiceData({
@@ -455,14 +510,28 @@ export default function NewInvoicePage() {
                       discount_value: parseFloat(e.target.value),
                     })
                   }
-                  placeholder={
-                    invoiceData.discount_type === "percentage"
-                      ? "Discount percentage"
-                      : "Discount amount"
-                  }
+                  placeholder="Enter custom discount amount"
                 />
               )}
             </div>
+
+            {/* Tax Rate */}
+            <div className="space-y-2">
+              <Label htmlFor="taxRate">Tax Rate (%)</Label>
+              <Input
+                id="taxRate"
+                name="tax_rate"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={invoiceData.tax_rate}
+                onChange={handleInputChange}
+                required
+              />
+            </div>
+
+            {/* Notes */}
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
               <Textarea
@@ -473,6 +542,8 @@ export default function NewInvoicePage() {
                 placeholder="Add any additional notes here..."
               />
             </div>
+
+            {/* Invoice Summary */}
             <div className="space-y-2 text-right">
               <p className="text-lg">
                 Subtotal: ${calculateSubtotal().toFixed(2)}
@@ -483,10 +554,8 @@ export default function NewInvoicePage() {
                 </p>
               )}
               <p className="text-lg">
-                Tax (10%): $
-                {calculateTax(
-                  calculateSubtotal() - calculateDiscount(calculateSubtotal())
-                ).toFixed(2)}
+                Tax ({invoiceData.tax_rate}%): $
+                {calculateTax(calculateSubtotal()).toFixed(2)}
               </p>
               <p className="text-lg font-semibold">
                 Total: ${calculateTotal().toFixed(2)}
